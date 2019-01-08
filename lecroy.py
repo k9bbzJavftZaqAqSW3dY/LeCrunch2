@@ -22,7 +22,10 @@
 import sys
 import re
 import array
-import StringIO
+try:
+    import StringIO
+except ImportError:
+    import io as StringIO
 import struct
 import numpy as np
 import socket
@@ -189,8 +192,10 @@ class LeCroyScope(object):
         '''
         Format and send the string `msg`.
         '''
-        if not msg.endswith('\n'):
-            msg += '\n'
+        if not str(type(msg)) == "<class 'bytes'>":
+            msg=msg.encode('ascii')
+        if not msg.endswith(b'\n'):
+            msg += b'\n'
         header = struct.pack(headerformat, 129, 1, 1, 0, len(msg))
         self.sock.sendall(header + msg)
 
@@ -198,14 +203,14 @@ class LeCroyScope(object):
         '''
         Return a message from the scope.
         '''
-        reply = ''
+        reply = b''
         while True:
-            header = ''
+            header = b''
             while len(header) < 8:
                 header += self.sock.recv(8 - len(header))
             operation, headerver, seqnum, spare, totalbytes = \
                 struct.unpack(headerformat, header)
-            buffer = ''
+            buffer = b''
             while len(buffer) < totalbytes:
                 buffer += self.sock.recv(totalbytes - len(buffer))
             reply += buffer
@@ -219,7 +224,7 @@ class LeCroyScope(object):
         an exception with details about the error.
         """
         self.send('cmr?')
-        err = int(self.recv().split(' ')[-1].rstrip('\n'))
+        err = int(self.recv().split(b' ')[-1].rstrip(b'\n'))
 
         if err in errors:
             self.sock.close()
@@ -241,7 +246,7 @@ class LeCroyScope(object):
         Sends a `settings` dict of Command->Setting to the scope.
         '''
         for command, setting in settings.items():
-            print 'sending %s' % command
+            print('sending %s' % command)
             self.send(setting)
             self.check_last_command()
 
@@ -252,7 +257,7 @@ class LeCroyScope(object):
         channels = []
         for i in range(1, 5):
             self.send('c%i:trace?' %i)
-            if 'ON' in self.recv():
+            if b'ON' in self.recv():
                 channels.append(i)
         return channels
 
@@ -283,11 +288,11 @@ class LeCroyScope(object):
         self.send('c%s:wf? desc' % str(channel))
 
         msg = self.recv()
-        if not int(msg[1]) == channel:
+        if not int(msg[1]) == channel+48:
             raise RuntimeError('waveforms out of sync or comm_header is off.')
 
-        data = StringIO.StringIO(msg)
-        startpos = re.search('WAVEDESC', data.read()).start()
+        data = StringIO.BytesIO(msg)
+        startpos = re.search(b'WAVEDESC', data.read()).start()
 
         wavedesc = {}
         
@@ -307,7 +312,7 @@ class LeCroyScope(object):
         for name, pos, datatype in wavedesc_template:
             raw = data.read(datatype.length)
             if datatype in (String, UnitDefinition):
-                wavedesc[name] = raw.rstrip('\x00')
+                wavedesc[name] = raw.rstrip(b'\x00')
             elif datatype in (TimeStamp,):
                 wavedesc[name] = struct.unpack(endian+datatype.packfmt, raw)
             else:
@@ -332,7 +337,7 @@ class LeCroyScope(object):
             raise Exception('channel must be in %s.' % str(range(1, 5)))
         self.send('c%s:wf? dat1' % str(channel))
         msg = self.recv()
-        if not int(msg[1]) == channel:
+        if not int(msg[1]) == channel+48:
             raise RuntimeError('waveforms out of sync or comm_header is off.')
         wavedesc = self.get_wavedesc(channel)
         return (wavedesc, np.fromstring(msg[22:], wavedesc['dtype'], wavedesc['wave_array_count']))
